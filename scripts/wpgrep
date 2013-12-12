@@ -1,0 +1,188 @@
+#!/usr/local/perls/perl-5.18.1/bin/perl
+use v5.16;
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use WordPress::Grep;
+
+binmode STDOUT, ':utf8';
+
+my(
+	$code, $database, $host, $like, $password, $port, $regex, $user,
+	) = ();
+
+GetOptions (
+	"c|code=s"          => \$code,
+	"d|db|database=s"   => \$database,
+	"h|host=s"          => \$host,
+	"l|like=s"          => \$like,
+	"p|password=s"      => \$password,
+	"port=i"            => \$port,
+	"r|regex=s"         => \$regex,
+	"u|user=s"          => \$user,
+	);
+
+if( defined $code ) {
+	my( $package, $subroutine ) = $code =~ m/(.*)::(.*)/;
+	die "Illegal package name [$package]\n"
+		unless $package =~ /\A([A-Z0-9_]+::)[A-Z0-9_]+\z/;
+	unless( eval "require $package; 1" ) {
+		die "Could not load package [$package]: $@\n";
+		}
+	unless( eval { $package->can( $subroutine ) } ) {
+		die "Package [$package] does not implement [$subroutine]\n";
+		}
+
+	my $code_ref = sub { no strict 'refs'; &{"$code"}( @_ ); };
+	}
+
+my $regex_ref;
+if( defined $regex ) {
+	$regex_ref = eval { qr/$regex/ } or die "Regex [$regex] does not compile! $@\n";
+	}
+
+my $wpgrep = WordPress::Grep->connect(
+	defined $host     ? ( host => $host )         : (),
+	defined $port     ? ( port => $port )         : (),
+	defined $user     ? ( user => $user )         : (),
+	defined $database ? ( database => $database ) : (),
+	defined $password ? ( password => $password ) : (),
+	);
+
+my $posts = $wpgrep->search(
+	defined $like  ? ( sql_like => $like )   : (),
+	defined $regex ? ( regex => $regex_ref ) : (),
+	defined $code  ? ( code => $code )       : (),
+	);
+
+# eventually this will pop up some other form
+say "There are " . keys( %$posts ) . " posts";
+say "-" x 50 if keys( %$posts );
+foreach my $ID ( sort { $a <=> $b } keys %$posts ) {
+	printf "%4d %-30s %-50s\n",
+		@{$posts->{$ID}}{ qw(ID post_name post_title) };
+	}
+
+__END__
+
+=encoding utf8
+
+=head1 NAME
+
+wpgrep - Search through a WordPress database directly
+
+=head1 SYNOPSIS
+
+	# search by SQL pattern
+	% wpgrep --host ... --user ... --like '%Amelia%'
+
+	# search by Perl pattern
+	% wpgrep --host ... --user ... --regex '\bAmelia(?!Foo)'
+
+	# search by arbitrary code
+	% wpgrep --host ... --user ... --code Some::Module::subroutine
+
+	# or combine them
+	% wpgrep --host ... --user ... --like '%Amelia%' --regex '\bAmelia(?!Foo)' --code Some::Module::subroutine
+
+=head1 DESCRIPTION
+
+I wanted a tool for complex searches of WordPress posts in my
+own installations. This is it. I can search by an SQL pattern,
+a Perl regular expression, or a any code I care to run on the
+values.
+
+If you specify C<--like>, it limits the returned rows to those whose
+C<post_title> or C<post_content> match that argument.
+
+If you specify C<--regex>, it filters the returned rows to those whose
+C<post_title> or C<post_content> satisfy the regular expression.
+
+If you specify C<--code>, it filters the returned rows to those for
+which the subroutine reference returns true. The coderef gets a hash
+reference of the current row. It's up to you to decide what to do with
+it.
+
+These filters are consecutive. You can specify any combination of them
+but they always happen in that order. The  C<--regex> only gets the
+rows that satisfied the C<--like>, and the C<--code> only gets the
+rows that satisfied C<--like> and C<--regex>.
+
+
+=head2 Options
+
+=over 4
+
+=item * -c, --code
+
+The fully-qualified name (I<e.g.> Some::Module::subroutine) of a
+subroutine to run on each record. The program loads that module for
+you.
+
+Be careful! This allows someone to run any code they like (and that's
+the point)!
+
+=item * -d, --db, --database
+
+The database name. This is the C<DB_NAME> in your F<wp-config.php>.
+
+=item * -h, --host
+
+The database host. This defaults to C<localhost>.
+
+=item * -l, --like
+
+An SQL pattern suitable for a LIKE argument. The regex applies to the
+C<post_title> and C<post_content>.
+
+See
+L<http://dev.mysql.com/doc/refman/5.0/en/pattern-matching.html>
+
+=item * -p, --password
+
+The database password associated with the user and the source machine,
+if you need that.
+
+=item * --port
+
+The MySQL port, if you aren't using the default.
+
+=item * -r, --regex
+
+A Perl regex used to filter the results. The regex applies to the
+C<post_title> and C<post_content>.
+
+=item * -u, --user
+
+The MySQL user. You might want to set up a special read-only user for
+this tool.
+
+=back
+
+=head1 TO DO
+
+
+=head1 SEE ALSO
+
+L<WordPress::API>
+
+=head1 SOURCE AVAILABILITY
+
+This source is in Github:
+
+	http://github.com/briandfoy/wordpress-grep/
+
+=head1 AUTHOR
+
+brian d foy, C<< <bdfoy@gmail.com> >>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (c) 2013, brian d foy, All Rights Reserved.
+
+You may redistribute this under the same terms as Perl itself.
+
+=cut
+
+1;
