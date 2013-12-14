@@ -22,4 +22,4 @@ requires:
   DBD::mysql: 0
   DBI: 0
   Test::More: 0.95
-version: 0.010_002
+version: 0.010_003
